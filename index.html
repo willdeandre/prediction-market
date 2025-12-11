@@ -202,8 +202,10 @@
             const m = marketData[mid] || { pool: { 0: 0, 1: 0 } };
             const outcome = selectedOutcome;
 
-            const currentWinPool = m.pool?.[outcome] || 0;
-            const currentLosePool = m.pool?.[1 - outcome] || 0;
+            const base = 50;
+
+            const currentWinPool = (m.pool?.[outcome] || 0) + base;
+            const currentLosePool = (m.pool?.[1 - outcome] || 0) + base;
 
             const newWinPool = currentWinPool + tempAmount;
 
