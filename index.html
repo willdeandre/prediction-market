@@ -209,7 +209,9 @@
 
             const newWinPool = currentWinPool + tempAmount;
 
-            return tempAmount + (tempAmount / newWinPool) * currentLosePool;
+            const profit = (tempAmount / newWinPool) * currentLosePool;
+
+            return profit;
         }
 
         // -----------------------------------------------------------
