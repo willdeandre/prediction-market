@@ -1,213 +1,318 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <title>Fantasy Prediction Market</title>
-    <style>
-        body {
-            font-family: Arial;
-            margin: 20px;
-        }
+  <meta charset="UTF-8" />
+  <title>Fantasy Prediction Market with LMSR AMM</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 20px;
+      background: #fafafa;
+    }
 
-        .market {
-            background: #f0f0f0;
-            padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-        }
+    .market {
+      background: #f0f0f0;
+      padding: 20px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+    }
 
-        button {
-            padding: 6px 12px;
-            margin-top: 8px;
-        }
-    </style>
+    button {
+      padding: 6px 12px;
+      margin-top: 8px;
+      margin-right: 6px;
+    }
+
+    input[type="number"] {
+      width: 120px;
+      margin-right: 10px;
+    }
+  </style>
 </head>
 
 <body>
+  <h1>Fantasy Prediction Market</h1>
 
-    <h1>Prediction Market</h1>
+  <div id="login">
+    <h3>Choose a username</h3>
+    <input id="username" placeholder="e.g. alex42" />
+    <button onclick="login()">Enter</button>
+  </div>
 
-    <div id="login">
-        <h3>Choose a username</h3>
-        <input id="username" placeholder="e.g. alex42">
-        <button onclick="login()">Enter</button>
-    </div>
+  <div id="app" style="display:none;"></div>
 
-    <div id="app" style="display:none;"></div>
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
 
-    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-database-compat.js"></script>
+  <script>
+    // ============================
+    // 1. FIREBASE CONFIG & INIT
+    // ============================
+    const firebaseConfig = {
+      apiKey: "AIzaSyB4z_GCzO9PWrfh7XhL-Im8xy4w2NAVWU0",
+      authDomain: "dreamleagueplayoffs2025.firebaseapp.com",
+      databaseURL: "https://dreamleagueplayoffs2025-default-rtdb.firebaseio.com",
+      projectId: "dreamleagueplayoffs2025",
+      storageBucket: "dreamleagueplayoffs2025.firebasestorage.app",
+      messagingSenderId: "747481589454",
+      appId: "1:747481589454:web:2b560ceaf392316859129f",
+      measurementId: "G-N6D5R0657M"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
 
-    <script>
-        // -----------------------------------------------------------
-        // 1. INSERT YOUR FIREBASE CONFIG HERE
-        // -----------------------------------------------------------
-        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
-        const firebaseConfig = {
-            apiKey: "AIzaSyB4z_GCzO9PWrfh7XhL-Im8xy4w2NAVWU0",
-            authDomain: "dreamleagueplayoffs2025.firebaseapp.com",
-            databaseURL: "https://dreamleagueplayoffs2025-default-rtdb.firebaseio.com",
-            projectId: "dreamleagueplayoffs2025",
-            storageBucket: "dreamleagueplayoffs2025.firebasestorage.app",
-            messagingSenderId: "747481589454",
-            appId: "1:747481589454:web:2b560ceaf392316859129f",
-            measurementId: "G-N6D5R0657M"
-        };
-        firebase.initializeApp(firebaseConfig);
-        const db = firebase.database();
+    // ============================
+    // 2. GLOBAL STATE AND CONSTANTS
+    // ============================
 
-        // -----------------------------------------------------------
-        // GLOBAL STATE
-        // -----------------------------------------------------------
-        let username = null;
-        const STARTING_BALANCE = 1000;
+    let username = null;
+    const STARTING_BALANCE = 1000;
+    const LIQUIDITY_B = 1000; // LMSR liquidity parameter (b)
 
-        const markets = {
-            m1: { name: "Team A vs Team B", outcomes: ["Team A", "Team B"] },
-            m2: { name: "Team C vs Team D", outcomes: ["Team C", "Team D"] }
-        };
+    // Define markets:
+    // m1 and m2: 2 outcomes, start at 50% odds (equal shares)
+    // m3: 10 outcomes, start at 10% each (equal shares)
+    const markets = {
+      m1: { name: "Tyler vs Matt", outcomes: ["Tyler", "Matt"] },
+      m2: { name: "Will vs Nate", outcomes: ["Will", "Nate"] },
+      m3: {
+        name: "2026 Winner",
+        outcomes: ["Will", "Ryan", "Nate", "Matt", "Tyler", "Jack", "Lincoln", "Zach", "Marek", "Kenji"]
+      }
+    };
 
-        // -----------------------------------------------------------
-        // LOGIN
-        // -----------------------------------------------------------
-        function login() {
-            username = document.getElementById("username").value.trim();
-            if (!username) return alert("Enter a username");
+    // ============================
+    // 3. LOGIN FUNCTION
+    // ============================
+    function login() {
+      username = document.getElementById("username").value.trim();
+      if (!username) return alert("Enter a username");
 
-            // If the user doesn't exist, initialize their wallet
-            db.ref("users/" + username).once("value").then(snap => {
-                if (!snap.exists()) {
-                    db.ref("users/" + username).set({
-                        balance: STARTING_BALANCE
-                    });
-                }
-            });
-
-            document.getElementById("login").style.display = "none";
-            document.getElementById("app").style.display = "block";
-            render();
-            subscribe();
+      // Initialize user if not exist
+      db.ref("users/" + username).once("value").then(snap => {
+        if (!snap.exists()) {
+          return db.ref("users/" + username).set({
+            balance: STARTING_BALANCE,
+            bets: {} // record bets per market/outcome
+          });
         }
-
-        // -----------------------------------------------------------
-        // REALTIME SUBSCRIBE
-        // -----------------------------------------------------------
-        function subscribe() {
-            db.ref("markets").on("value", snap => {
-                window.marketData = snap.val() || {};
-                render();
-            });
-            db.ref("users/" + username).on("value", snap => {
-                window.userData = snap.val();
-                render();
-            });
-        }
-
-        // -----------------------------------------------------------
-        // PLACE BET
-        // -----------------------------------------------------------
-        function bet(mid, outcome) {
-            const amt = Number(document.getElementById(mid + "_amt").value);
-            if (!amt || amt <= 0) return alert("Enter valid amount");
-
-            if (amt > userData.balance) return alert("Not enough credits");
-
-            const poolPath = `markets/${mid}/pool/${outcome}`;
-            const myBetPath = `users/${username}/bets/${mid}/${outcome}`;
-
-            const updates = {};
-
-            // subtract balance
-            updates[`users/${username}/balance`] = userData.balance - amt;
-
-            // add to pool
-            const poolVal = (marketData?.[mid]?.pool?.[outcome] || 0) + amt;
-            updates[poolPath] = poolVal;
-
-            // record my bet
-            const myVal = (userData?.bets?.[mid]?.[outcome] || 0) + amt;
-            updates[myBetPath] = myVal;
-
-            db.ref().update(updates);
-        }
-
-        // -----------------------------------------------------------
-        // RESOLVE MARKET (HOST ONLY)
-        // -----------------------------------------------------------
-        function resolve(mid, winner) {
-            const m = marketData[mid];
-            if (!m || m.resolved) return;
-
-            Object.keys(userDataMap).forEach(user => {
-                const u = userDataMap[user];
-                const bets = u.bets?.[mid];
-                if (!bets) return;
-
-                const winStake = bets[winner] || 0;
-                const totalWin = (m.pool?.[winner] || 0);
-                const totalLose = (m.pool?.[1 - winner] || 0);
-
-                let payout = 0;
-                if (winStake > 0) {
-                    payout = winStake + (winStake / totalWin) * totalLose;
-                }
-
-                db.ref("users/" + user + "/balance").set((u.balance || 0) + payout);
-            });
-
-            db.ref("markets/" + mid + "/resolved").set(true);
-            db.ref("markets/" + mid + "/winner").set(winner);
-        }
-
-        // -----------------------------------------------------------
-        // RENDER
-        // -----------------------------------------------------------
-        function render() {
-            if (!window.marketData || !window.userData) return;
-
-            let html = `<h2>User: ${username}</h2>
-              <h3>Balance: ${userData.balance?.toFixed(2)}</h3>`;
-
-            for (const mid in markets) {
-                const m = markets[mid];
-                const data = marketData[mid] || { pool: { 0: 0, 1: 0 } };
-
-                const t0 = data.pool?.[0] || 0;
-                const t1 = data.pool?.[1] || 0;
-                const total = t0 + t1 || 1;
-
-                html += `
-      <div class="market">
-        <h3>${m.name}</h3>
-        ${data.resolved ? `<b>Resolved — Winner: ${m.outcomes[data.winner]}</b>` : `
-          <p>${m.outcomes[0]}: ${t0} credits (${(t0 / total * 100).toFixed(1)}%)</p>
-          <p>${m.outcomes[1]}: ${t1} credits (${(t1 / total * 100).toFixed(1)}%)</p>
-
-          <input id="${mid}_amt" type="number" min="1" placeholder="Amount" style="width:120px;">
-          <button onclick="bet('${mid}',0)">Bet on ${m.outcomes[0]}</button>
-          <button onclick="bet('${mid}',1)">Bet on ${m.outcomes[1]}</button>
-          <br><br>
-
-          <button onclick="resolve('${mid}',0)">Resolve: ${m.outcomes[0]}</button>
-          <button onclick="resolve('${mid}',1)">Resolve: ${m.outcomes[1]}</button>
-        `}
-      </div>
-    `;
-            }
-
-            document.getElementById("app").innerHTML = html;
-        }
-
-        // -----------------------------------------------------------
-        // LOAD ALL USERS FOR PAYOUT CALC
-        // -----------------------------------------------------------
-        let userDataMap = {};
-        firebase.database().ref("users").on("value", snap => {
-            userDataMap = snap.val() || {};
+      }).then(() => {
+        document.getElementById("login").style.display = "none";
+        document.getElementById("app").style.display = "block";
+        initializeMarkets().then(() => {
+          subscribe();
         });
-    </script>
+      });
+    }
 
+    // ============================
+    // 4. INITIALIZE MARKETS (one-time only)
+    // This sets starting LMSR shares so odds = initial equal probabilities
+    // ============================
+    async function initializeMarkets() {
+      const snap = await db.ref("markets").once("value");
+      if (snap.exists()) return; // Already initialized
+
+      const initialMarkets = {};
+
+      // For m1 and m2: 2 outcomes each, start with shares = LIQUIDITY_B
+      for (const mid of ["m1", "m2"]) {
+        initialMarkets[mid] = {
+          name: markets[mid].name,
+          outcomes: markets[mid].outcomes,
+          shares: [LIQUIDITY_B, LIQUIDITY_B], // equal shares for 50%
+          resolved: false,
+          winner: null
+        };
+      }
+
+      // For m3: 10 outcomes, start shares all LIQUIDITY_B
+      initialMarkets["m3"] = {
+        name: markets["m3"].name,
+        outcomes: markets["m3"].outcomes,
+        shares: Array(10).fill(LIQUIDITY_B), // equal shares for 10%
+        resolved: false,
+        winner: null
+      };
+
+      await db.ref("markets").set(initialMarkets);
+    }
+
+    // ============================
+    // 5. SUBSCRIBE TO DATA CHANGES
+    // ============================
+    let marketData = {};
+    let userData = {};
+    function subscribe() {
+      db.ref("markets").on("value", snap => {
+        marketData = snap.val() || {};
+        render();
+      });
+
+      db.ref("users/" + username).on("value", snap => {
+        userData = snap.val() || {};
+        render();
+      });
+    }
+
+    // ============================
+    // 6. LMSR MARKET MAKER FUNCTIONS
+    // ============================
+
+    // Cost function: C(q) = b * ln( sum_i e^(q_i / b) )
+    function costFunction(q) {
+      const sumExp = q.reduce((sum, qi) => sum + Math.exp(qi / LIQUIDITY_B), 0);
+      return LIQUIDITY_B * Math.log(sumExp);
+    }
+
+    // Price vector: p_i = e^(q_i/b) / sum_j e^(q_j/b)
+    function priceVector(q) {
+      const expVals = q.map(qi => Math.exp(qi / LIQUIDITY_B));
+      const sumExp = expVals.reduce((a, b) => a + b, 0);
+      return expVals.map(v => v / sumExp);
+    }
+
+    // Calculate cost to buy 'amount' shares for outcome 'idx'
+    // We calculate difference in cost function:
+    // cost = C(q + delta) - C(q), where delta is 0 except at idx
+    function calcBuyCost(q, idx, amount) {
+      const newQ = q.slice();
+      newQ[idx] += amount;
+      return costFunction(newQ) - costFunction(q);
+    }
+
+    // ============================
+    // 7. PLACE BET (BUY SHARES)
+    // ============================
+    async function bet(marketId, outcomeIndex) {
+      const inputEl = document.getElementById(`${marketId}_amt`);
+      const amt = Number(inputEl.value);
+      if (!amt || amt <= 0) return alert("Enter a valid amount");
+
+      if (!userData.balance || userData.balance < 0) return alert("Balance data not loaded");
+      if (amt > userData.balance) return alert("Not enough balance");
+
+      const market = marketData[marketId];
+      if (!market || market.resolved) return alert("Market does not exist or is resolved");
+
+      const q = market.shares || Array(markets[marketId].outcomes.length).fill(0);
+
+      // Calculate cost to buy amt shares on outcomeIndex
+      const cost = calcBuyCost(q, outcomeIndex, amt);
+
+      if (cost > userData.balance) return alert(`You don't have enough balance for this purchase (cost: ${cost.toFixed(2)})`);
+
+      // Update shares and user data in atomic update
+      const updates = {};
+
+      // Update market shares
+      const newShares = q.slice();
+      newShares[outcomeIndex] += amt;
+      updates[`markets/${marketId}/shares`] = newShares;
+
+      // Subtract user balance
+      updates[`users/${username}/balance`] = userData.balance - cost;
+
+      // Update user's bets (record how many shares they hold)
+      const currentUserBets = userData.bets || {};
+      if (!currentUserBets[marketId]) currentUserBets[marketId] = {};
+      currentUserBets[marketId][outcomeIndex] = (currentUserBets[marketId][outcomeIndex] || 0) + amt;
+      updates[`users/${username}/bets`] = currentUserBets;
+
+      await db.ref().update(updates);
+      inputEl.value = "";
+    }
+
+    // ============================
+    // 8. RESOLVE MARKET (Host only)
+    // ============================
+    // Just a button for now - no auth checks!
+    async function resolve(marketId, winnerIndex) {
+      const market = marketData[marketId];
+      if (!market || market.resolved) return alert("Market already resolved or not loaded");
+
+      // Payout calculation:
+      // - Users holding shares in winning outcome get paid their shares * final price per share
+      // - Final price per share can be assumed as 1 credit per share (simple payout)
+      // - Other shares worthless
+
+      // We'll fetch all users once (naive approach)
+      const usersSnap = await db.ref("users").once("value");
+      const allUsers = usersSnap.val() || {};
+
+      const updates = {};
+
+      for (const user in allUsers) {
+        const bets = allUsers[user].bets?.[marketId];
+        if (!bets) continue;
+        const shares = bets[winnerIndex] || 0;
+        if (shares <= 0) continue;
+
+        // Payout is shares * 1 credit (you can add complex payout logic here)
+        updates[`users/${user}/balance`] = (allUsers[user].balance || 0) + shares;
+      }
+
+      updates[`markets/${marketId}/resolved`] = true;
+      updates[`markets/${marketId}/winner`] = winnerIndex;
+
+      await db.ref().update(updates);
+    }
+
+    // ============================
+    // 9. RENDER UI
+    // ============================
+    function render() {
+      if (!marketData || !userData) return;
+
+      const balance = userData.balance ?? 0;
+
+      let html = `<h2>User: ${username}</h2>`;
+      html += `<h3>Balance: ${balance.toFixed(2)} credits</h3>`;
+
+      for (const mid in markets) {
+        const m = markets[mid];
+        const data = marketData[mid] || {
+          shares: Array(m.outcomes.length).fill(0),
+          resolved: false,
+          winner: null,
+        };
+
+        const prices = priceVector(data.shares || Array(m.outcomes.length).fill(0));
+
+        html += `<div class="market"><h3>${m.name}</h3>`;
+
+        if (data.resolved) {
+          html += `<b>Resolved — Winner: ${m.outcomes[data.winner]}</b>`;
+        } else {
+          // Show prices + shares for each outcome
+          for (let i = 0; i < m.outcomes.length; i++) {
+            html += `<p>${m.outcomes[i]}: ${prices[i] * 100.0.toFixed(1)}% chance — Shares: ${data.shares[i].toFixed(2)}</p>`;
+          }
+
+          html += `
+            <input id="${mid}_amt" type="number" min="1" placeholder="Shares to buy" />
+          `;
+
+          for (let i = 0; i < m.outcomes.length; i++) {
+            html += `<button onclick="bet('${mid}',${i})">Buy ${m.outcomes[i]} Shares</button>`;
+          }
+
+          html += `<br><br>`;
+
+          // Resolve buttons for host only (no auth here)
+          for (let i = 0; i < m.outcomes.length; i++) {
+            html += `<button onclick="resolve('${mid}',${i})">Resolve: ${m.outcomes[i]}</button>`;
+          }
+        }
+
+        html += `</div>`;
+      }
+
+      document.getElementById("app").innerHTML = html;
+    }
+  </script>
 </body>
 
 </html>
