@@ -186,6 +186,11 @@
 
         function updateTempAmount(mid) {
             tempAmount = Number(document.getElementById(mid + "_amt").value || 0);
+        
+            const el = document.getElementById("return_" + mid);
+            if (el) {
+                el.innerHTML = "<b>Expected Return:</b> " + calculateReturn(mid).toFixed(2);
+            }
         }
 
         // -----------------------------------------------------------
@@ -327,7 +332,7 @@
                                    oninput="updateTempAmount('${mid}')"
                                    style="width:120px;">
 
-                            <p><b>Expected Return:</b> ${calculateReturn(mid).toFixed(2)}</p>
+                            <p id="return_${mid}"><b>Returns:</b> ${calculateReturn(mid).toFixed(2)}</p>
 
                             <button onclick="confirmBet('${mid}')">Confirm Bet</button>
                         `}
