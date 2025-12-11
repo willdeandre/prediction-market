@@ -10,7 +10,7 @@
             margin: 20px;
         }
 
-        /* MAIN LAYOUT */
+        /* SIDE-BY-SIDE MARKET LAYOUT */
         #marketsRow {
             display: flex;
             gap: 20px;
@@ -27,11 +27,6 @@
             box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
         }
 
-        .market h3 {
-            margin-top: 8px;
-            margin-bottom: 12px;
-        }
-
         button {
             padding: 6px 12px;
             margin-top: 8px;
@@ -40,6 +35,10 @@
             color: black;
             border-radius: 6px;
             cursor: pointer;
+        }
+
+        button:hover {
+            opacity: 0.9;
         }
 
         .bubble {
@@ -51,6 +50,22 @@
             font-weight: bold;
             margin-bottom: 10px;
             font-size: 14px;
+        }
+
+        /* ANIMATED PROBABILITY BARS */
+        .prob-bar-container {
+            width: 100%;
+            height: 16px;
+            background: rgba(255, 255, 255, 0.25);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 6px 0 14px 0;
+        }
+
+        .prob-bar-fill {
+            height: 100%;
+            background: white;
+            transition: width 0.6s ease;
         }
     </style>
 </head>
@@ -92,6 +107,10 @@
         // -----------------------------------------------------------
         let username = null;
         const STARTING_BALANCE = 1000;
+
+        let selectedOutcome = null;
+        let selectedMarket = null;
+        let tempAmount = 0;
 
         const markets = {
             m1: {
@@ -135,6 +154,7 @@
                 window.marketData = snap.val() || {};
                 render();
             });
+
             db.ref("users/" + username).on("value", snap => {
                 window.userData = snap.val();
                 render();
@@ -142,11 +162,56 @@
         }
 
         // -----------------------------------------------------------
-        // PLACE BET
+        // SELECT OUTCOME
+        // -----------------------------------------------------------
+        function selectOutcome(mid, outcome) {
+            selectedMarket = mid;
+            selectedOutcome = outcome;
+            tempAmount = 0;
+            render();
+        }
+
+        function updateTempAmount(mid) {
+            tempAmount = Number(document.getElementById(mid + "_amt").value || 0);
+            render();
+        }
+
+        // -----------------------------------------------------------
+        // LIVE EXPECTED RETURN
+        // -----------------------------------------------------------
+        function calculateReturn(mid) {
+            if (!tempAmount || tempAmount <= 0) return 0;
+
+            const m = marketData[mid] || { pool: { 0: 0, 1: 0 } };
+            const outcome = selectedOutcome;
+
+            const currentWinPool = m.pool?.[outcome] || 0;
+            const currentLosePool = m.pool?.[1 - outcome] || 0;
+
+            const newWinPool = currentWinPool + tempAmount;
+
+            return tempAmount + (tempAmount / newWinPool) * currentLosePool;
+        }
+
+        // -----------------------------------------------------------
+        // CONFIRM BET
+        // -----------------------------------------------------------
+        function confirmBet(mid) {
+            if (!tempAmount || tempAmount <= 0) return alert("Enter amount");
+            bet(mid, selectedOutcome);
+
+            selectedOutcome = null;
+            selectedMarket = null;
+            tempAmount = 0;
+
+            render();
+        }
+
+        // -----------------------------------------------------------
+        // BACKEND BET LOGIC
         // -----------------------------------------------------------
         function bet(mid, outcome) {
-            const amt = Number(document.getElementById(mid + "_amt").value);
-            if (!amt || amt <= 0) return alert("Enter valid amount");
+            const amt = tempAmount;
             if (amt > userData.balance) return alert("Not enough credits");
 
             const updates = {};
@@ -193,7 +258,7 @@
         }
 
         // -----------------------------------------------------------
-        // RENDER
+        // RENDER UI
         // -----------------------------------------------------------
         function render() {
             if (!window.marketData || !window.userData) return;
@@ -213,6 +278,8 @@
                 const t1 = data.pool?.[1] || 0;
                 const total = t0 + t1 || 1;
 
+                const isSelected = selectedMarket === mid;
+
                 html += `
                 <div class="market">
                     <div class="bubble">${m.bubble}</div>
@@ -221,16 +288,37 @@
                     ${data.resolved
                         ? `<b>Resolved — Winner: ${m.outcomes[data.winner]}</b>`
                         : `
+                        <!-- OUTCOME 0 -->
                         <p>${m.outcomes[0]}: ${t0} credits (${(t0 / total * 100).toFixed(1)}%)</p>
+                        <div class="prob-bar-container">
+                            <div class="prob-bar-fill" 
+                                style="width:${(t0 / total * 100)}%;">
+                            </div>
+                        </div>
+
+                        <!-- OUTCOME 1 -->
                         <p>${m.outcomes[1]}: ${t1} credits (${(t1 / total * 100).toFixed(1)}%)</p>
+                        <div class="prob-bar-container">
+                            <div class="prob-bar-fill" 
+                                style="width:${(t1 / total * 100)}%;">
+                            </div>
+                        </div>
 
-                        <input id="${mid}_amt" type="number" min="1" placeholder="Amount" style="width:120px;">
-                        <button onclick="bet('${mid}',0)">Bet on ${m.outcomes[0]}</button>
-                        <button onclick="bet('${mid}',1)">Bet on ${m.outcomes[1]}</button>
-                        <br><br>
+                        ${!isSelected ? `
+                            <button onclick="selectOutcome('${mid}', 0)">Bet on ${m.outcomes[0]}</button>
+                            <button onclick="selectOutcome('${mid}', 1)">Bet on ${m.outcomes[1]}</button>
+                        ` : `
+                            <input id="${mid}_amt" 
+                                   type="number" 
+                                   min="1"
+                                   placeholder="Amount"
+                                   oninput="updateTempAmount('${mid}')"
+                                   style="width:120px;">
 
-                        <button onclick="resolve('${mid}',0)">Resolve: ${m.outcomes[0]}</button>
-                        <button onclick="resolve('${mid}',1)">Resolve: ${m.outcomes[1]}</button>
+                            <p><b>Expected Return:</b> ${calculateReturn(mid).toFixed(2)}</p>
+
+                            <button onclick="confirmBet('${mid}')">Confirm Bet</button>
+                        `}
                     `}
                 </div>
                 `;
