@@ -10,16 +10,47 @@
             margin: 20px;
         }
 
+        /* MAIN LAYOUT */
+        #marketsRow {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        /* GREEN MARKET CARD */
         .market {
-            background: #f0f0f0;
+            background: #27c96f;        /* rainforest green */
             padding: 20px;
-            margin-bottom: 20px;
-            border-radius: 8px;
+            border-radius: 12px;
+            width: 45%;
+            color: #ffffff;
+            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.15);
+        }
+
+        .market h3 {
+            margin-top: 8px;
+            margin-bottom: 12px;
         }
 
         button {
             padding: 6px 12px;
             margin-top: 8px;
+            border: none;
+            background: white;
+            color: black;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+
+        .bubble {
+            display: inline-block;
+            background: white;
+            color: black;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: bold;
+            margin-bottom: 10px;
+            font-size: 14px;
         }
     </style>
 </head>
@@ -41,9 +72,8 @@
 
     <script>
         // -----------------------------------------------------------
-        // 1. INSERT YOUR FIREBASE CONFIG HERE
+        // FIREBASE CONFIG
         // -----------------------------------------------------------
-        // For Firebase JS SDK v7.20.0 and later, measurementId is optional
         const firebaseConfig = {
             apiKey: "AIzaSyB4z_GCzO9PWrfh7XhL-Im8xy4w2NAVWU0",
             authDomain: "dreamleagueplayoffs2025.firebaseapp.com",
@@ -64,8 +94,16 @@
         const STARTING_BALANCE = 1000;
 
         const markets = {
-            m1: { name: "I suck at fantasy vs 1-Headed QB", outcomes: ["I suck at fantasy", "1-Headed QB"] },
-            m2: { name: "McDouble in your mouth vs Big Zano", outcomes: ["McDouble in your mouth", "Big Zano"] }
+            m1: {
+                name: "I suck at fantasy vs 1-Headed QB",
+                outcomes: ["I suck at fantasy", "1-Headed QB"],
+                bubble: "4 vs 5"
+            },
+            m2: {
+                name: "McDouble in your mouth vs Big Zano",
+                outcomes: ["McDouble in your mouth", "Big Zano"],
+                bubble: "3 vs 6"
+            }
         };
 
         // -----------------------------------------------------------
@@ -75,7 +113,6 @@
             username = document.getElementById("username").value.trim();
             if (!username) return alert("Enter a username");
 
-            // If the user doesn't exist, initialize their wallet
             db.ref("users/" + username).once("value").then(snap => {
                 if (!snap.exists()) {
                     db.ref("users/" + username).set({
@@ -110,22 +147,17 @@
         function bet(mid, outcome) {
             const amt = Number(document.getElementById(mid + "_amt").value);
             if (!amt || amt <= 0) return alert("Enter valid amount");
-
             if (amt > userData.balance) return alert("Not enough credits");
+
+            const updates = {};
+            updates[`users/${username}/balance`] = userData.balance - amt;
 
             const poolPath = `markets/${mid}/pool/${outcome}`;
             const myBetPath = `users/${username}/bets/${mid}/${outcome}`;
 
-            const updates = {};
-
-            // subtract balance
-            updates[`users/${username}/balance`] = userData.balance - amt;
-
-            // add to pool
             const poolVal = (marketData?.[mid]?.pool?.[outcome] || 0) + amt;
             updates[poolPath] = poolVal;
 
-            // record my bet
             const myVal = (userData?.bets?.[mid]?.[outcome] || 0) + amt;
             updates[myBetPath] = myVal;
 
@@ -133,7 +165,7 @@
         }
 
         // -----------------------------------------------------------
-        // RESOLVE MARKET (HOST ONLY)
+        // RESOLVE MARKET
         // -----------------------------------------------------------
         function resolve(mid, winner) {
             const m = marketData[mid];
@@ -145,8 +177,8 @@
                 if (!bets) return;
 
                 const winStake = bets[winner] || 0;
-                const totalWin = (m.pool?.[winner] || 0);
-                const totalLose = (m.pool?.[1 - winner] || 0);
+                const totalWin = m.pool?.[winner] || 0;
+                const totalLose = m.pool?.[1 - winner] || 0;
 
                 let payout = 0;
                 if (winStake > 0) {
@@ -166,8 +198,12 @@
         function render() {
             if (!window.marketData || !window.userData) return;
 
-            let html = `<h2>User: ${username}</h2>
-              <h3>Balance: ${userData.balance?.toFixed(2)}</h3>`;
+            let html = `
+                <h2>User: ${username}</h2>
+                <h3>Balance: ${userData.balance?.toFixed(2)}</h3>
+
+                <div id="marketsRow">
+            `;
 
             for (const mid in markets) {
                 const m = markets[mid];
@@ -178,29 +214,34 @@
                 const total = t0 + t1 || 1;
 
                 html += `
-      <div class="market">
-        <h3>${m.name}</h3>
-        ${data.resolved ? `<b>Resolved — Winner: ${m.outcomes[data.winner]}</b>` : `
-          <p>${m.outcomes[0]}: ${t0} credits (${(t0 / total * 100).toFixed(1)}%)</p>
-          <p>${m.outcomes[1]}: ${t1} credits (${(t1 / total * 100).toFixed(1)}%)</p>
+                <div class="market">
+                    <div class="bubble">${m.bubble}</div>
+                    <h3>${m.name}</h3>
 
-          <input id="${mid}_amt" type="number" min="1" placeholder="Amount" style="width:120px;">
-          <button onclick="bet('${mid}',0)">Bet on ${m.outcomes[0]}</button>
-          <button onclick="bet('${mid}',1)">Bet on ${m.outcomes[1]}</button>
-          <br><br>
+                    ${data.resolved
+                        ? `<b>Resolved — Winner: ${m.outcomes[data.winner]}</b>`
+                        : `
+                        <p>${m.outcomes[0]}: ${t0} credits (${(t0 / total * 100).toFixed(1)}%)</p>
+                        <p>${m.outcomes[1]}: ${t1} credits (${(t1 / total * 100).toFixed(1)}%)</p>
 
-          <button onclick="resolve('${mid}',0)">Resolve: ${m.outcomes[0]}</button>
-          <button onclick="resolve('${mid}',1)">Resolve: ${m.outcomes[1]}</button>
-        `}
-      </div>
-    `;
+                        <input id="${mid}_amt" type="number" min="1" placeholder="Amount" style="width:120px;">
+                        <button onclick="bet('${mid}',0)">Bet on ${m.outcomes[0]}</button>
+                        <button onclick="bet('${mid}',1)">Bet on ${m.outcomes[1]}</button>
+                        <br><br>
+
+                        <button onclick="resolve('${mid}',0)">Resolve: ${m.outcomes[0]}</button>
+                        <button onclick="resolve('${mid}',1)">Resolve: ${m.outcomes[1]}</button>
+                    `}
+                </div>
+                `;
             }
 
+            html += `</div>`;
             document.getElementById("app").innerHTML = html;
         }
 
         // -----------------------------------------------------------
-        // LOAD ALL USERS FOR PAYOUT CALC
+        // LOAD ALL USERS
         // -----------------------------------------------------------
         let userDataMap = {};
         firebase.database().ref("users").on("value", snap => {
